@@ -1,76 +1,119 @@
 import * as THREE from 'three';
-import { Controls, PerspectiveCamera } from './core/Camera';
+import { PerspectiveCamera } from './core/Camera';
 import { Three } from './core/Three';
 import { Gui } from './Gui';
-import fragment from './shaders/fragment.glsl?raw';
-import vertex from './shaders/vertex.glsl?raw';
+import { Carousel } from './Carousel';
+import {
+  PARAMS,
+  SLIDE_COUNT,
+  expandToCount,
+  horizontalImages,
+  verticalImages,
+} from './params';
 
 export class App extends Three {
   private readonly camera: PerspectiveCamera;
-  private cube!: THREE.Mesh;
+  private readonly textureLoader = new THREE.TextureLoader();
+  private carousel!: Carousel;
+  private pane!: Gui;
+
+  private horizontalTextures: THREE.Texture[] = [];
+  private verticalTextures: THREE.Texture[] = [];
+
+  private rotation = 0;
+  private velocity = 0;
+  private readonly mouse = { x: 0, y: 0 };
+  private readonly cameraBase = { x: 3, y: 3, z: 8 };
 
   constructor(canvas: HTMLCanvasElement) {
     super(canvas);
 
-    this.camera = new PerspectiveCamera();
-    new Controls(this.renderer, this.camera);
+    this.camera = new PerspectiveCamera({ fov: 32 });
+    this.camera.position.set(this.cameraBase.x, this.cameraBase.y, this.cameraBase.z);
+    this.camera.lookAt(0, 0, 0);
+
+    this.scene.background = new THREE.Color('#D9DAD4');
 
     this.init();
-    this.createGeometry();
+
+    window.addEventListener('mousemove', this.onMouseMove);
+    window.addEventListener('wheel', this.onWheel, { passive: false });
+    window.addEventListener('resize', this.resize);
+    this.renderer.setAnimationLoop(this.animate);
+  }
+
+  private async init() {
+    const [horizontal, vertical] = await Promise.all([
+      Promise.all(horizontalImages.map(url => this.loadTexture(url))),
+      Promise.all(verticalImages.map(url => this.loadTexture(url))),
+    ]);
+
+    this.horizontalTextures = expandToCount(horizontal, SLIDE_COUNT);
+    this.verticalTextures = expandToCount(vertical, SLIDE_COUNT);
+
+    this.carousel = new Carousel(this.horizontalTextures, this.verticalTextures);
+    this.scene.add(this.carousel.group);
 
     this.setGui();
-
-    window.addEventListener('resize', this.resize.bind(this));
-    this.renderer.setAnimationLoop(this.animate.bind(this));
   }
 
-  private init() {
-    this.scene.background = new THREE.Color('#222222');
+  private async loadTexture(url: string) {
+    const texture = await this.textureLoader.loadAsync(url);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.minFilter = THREE.LinearFilter;
+    return texture;
   }
 
-  private createGeometry() {
-    const geometry = new THREE.BoxGeometry(1, 1, 1);
-    const material = new THREE.ShaderMaterial({
-      vertexShader: vertex,
-      fragmentShader: fragment,
-      uniforms: {
-        uTime: { value: 0 },
-      },
-    });
+  private onWheel = (event: WheelEvent) => {
+    event.preventDefault();
+    const delta = PARAMS.axis === 'horizontal'
+      ? event.deltaX + event.deltaY
+      : event.deltaY + event.deltaX;
+    this.velocity += delta * 0.0015;
+  };
 
-    this.cube = new THREE.Mesh(geometry, material);
-    this.scene.add(this.cube);
+  private onMouseMove = (event: MouseEvent) => {
+    this.mouse.x = (event.clientX / window.innerWidth - 0.5) * 0.6;
+    this.mouse.y = (event.clientY / window.innerHeight - 0.5) * -0.6;
   }
 
   private setGui() {
-    const PARAMS = {
-      zPos: this.camera.position.z,
-    };
-
-    const pane = new Gui();
-    pane.addBinding(PARAMS, 'zPos', { min: 0, max: 10 });
-
-    pane.on('change', () => {
-      this.camera.position.z = PARAMS.zPos;
+    this.pane = new Gui();
+    this.pane.addBinding(PARAMS, 'axis', {
+      options: {
+        Horizontal: 'horizontal',
+        Vertical: 'vertical',
+      },
     });
+    this.pane.addBinding(PARAMS, 'spacing', { min: 0, max: 1, step: 0.05 });
+    this.pane.addBinding(PARAMS, 'parallax', { min: 0, max: 0.35, step: 0.01 });
+    this.pane.addBinding(PARAMS, 'bend', { min: 0, max: 1, step: 0.01 });
   }
 
-  private animate() {
-    const delta = this.clock.getDelta();
-    this.cube.rotation.x += delta * 0.5;
-    this.cube.rotation.y += delta * 0.5;
+  private animate = () => {
+    this.velocity *= 0.75;
+    this.rotation += this.velocity;
+    this.carousel?.update(this.rotation);
 
-    const cubeMaterial = this.cube.material as THREE.ShaderMaterial;
-
-    if (cubeMaterial.uniforms.uTime) {
-      cubeMaterial.uniforms.uTime.value += delta;
-    }
+    const { x, y, z } = this.cameraBase;
+    this.camera.position.x += (x + this.mouse.x - this.camera.position.x) * 0.06;
+    this.camera.position.y += (y + this.mouse.y - this.camera.position.y) * 0.06;
+    this.camera.position.z += (z - this.camera.position.z) * 0.06;
+    this.camera.lookAt(0, 0, 0);
 
     this.renderer.render(this.scene, this.camera);
   }
 
-  private resize() {
+  private resize = () => {
     this.camera.update();
+  }
+
+  override dispose() {
+    window.removeEventListener('mousemove', this.onMouseMove);
+    window.removeEventListener('wheel', this.onWheel);
+    this.pane.dispose();
+    this.carousel.dispose();
+    super.dispose();
   }
 }
 
