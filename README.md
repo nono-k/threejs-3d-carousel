@@ -10,5 +10,4 @@ Three.jsで横にも縦にも回る3Dカルーセルの作り方
 
 ## Demo
 
-[https://nono-k.github.io/threejs-3d-carousel/](https://nono-k.github.io/threejs-3d-carousel<img width="1600" height="900" alt="threejs-3d-carousel" src="https://github.com/user-attachments/assets/443d8fd3-031c-40b2-bf4f-f37e125f52a4" />
-/)
+[https://nono-k.github.io/threejs-3d-carousel/](https://nono-k.github.io/threejs-3d-carousel/)
